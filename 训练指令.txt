@@ -1,0 +1,85 @@
+###########复现指令
+
+python main_train.py \
+  --gpu 0 \
+  --train_task atadd-track1 \
+  --model ft-w2v2aasist \
+  --seed 1234 \
+  --batch_size 14 \
+  --lr 0.000001 \
+  --num_epochs 20 \
+  --save_best_by eer \
+  --o ./ckpt_t1/ft_xlsr_aasist
+ 
+
+
+
+
+############改进使用aalf
+
+python main_train.py \
+  --gpu 0 \
+  --train_task atadd-track1 \
+  --model aalf-w2v2aasist \
+  --init_from ./ckpt_t1/ft_xlsr_aasist/atadd_model.pt \
+  --aalf_freeze_xlsr \
+  --aalf_layers 4,8,12,16,20,24 \
+  --aalf_topk 3 \
+  --aalf_bottleneck 256 \
+  --seed 1234 \
+  --batch_size 8 \
+  --lr 0.0001 \
+  --num_epochs 10 \
+  --save_best_by f1 \
+  --o ./ckpt_t1/aalf_xlsr_aasist
+  
+  
+##############AALF + PI
+1：
+python main_train.py \
+  --gpu 0 \
+  --train_task atadd-track1 \
+  --model aalf-w2v2aasist \
+  --init_from ./ckpt_t1/aalf_xlsr_aasist/atadd_model.pt \
+  --aalf_freeze_xlsr \
+  --aalf_layers 4,8,12,16,20,24 \
+  --aalf_topk 3 \
+  --aalf_bottleneck 256 \
+  --aalf_dropout 0.1 \
+  --pi_training \
+  --pi_js 0.2 \
+  --pi_feat 0.05 \
+  --pi_aug_prob 1.0 \
+  --seed 1234 \
+  --batch_size 24 \
+  --lr 0.00005 \
+  --num_epochs 10 \
+  --save_best_by f1 \
+  --o ./ckpt_t1/pi_aalf_xlsr_aasist  
+  
+  
+2：
+python main_train.py \
+  --gpu 0 \
+  --train_task atadd-track1 \
+  --model aalf-w2v2aasist \
+  --init_from ./ckpt_t1/aalf_xlsr_aasist/atadd_model.pt \
+  --aalf_layers 4,8,12,16,20,24 \
+  --aalf_topk 3 \
+  --aalf_bottleneck 256 \
+  --aalf_dropout 0.1 \
+  --pi_training \
+  --pi_js 0.2 \
+  --pi_feat 0.05 \
+  --pi_aug_prob 1.0 \
+  --seed 1234 \
+  --batch_size 12 \
+  --lr 0.00005 \
+  --num_epochs 10 \
+  --save_best_by f1 \
+  --o ./ckpt_t1/pi_aalf_xlsr_aasist
+
+  
+ 以上都是Track 1
+ 
+ 

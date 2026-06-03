@@ -76,7 +76,28 @@ class XLSR(torch.nn.Module):
     def extract_features(self, audio_data):
         # Process the input audio and extract the features using the forward pass
         return self.forward(audio_data)  # Return the final layer's output
+    
+##修改
+    def extract_hidden_states(self, audio_data):
+        feat = self.processor(
+            audio_data,
+            sampling_rate=self.sampling_rate,
+            return_tensors="pt"
+        ).input_values.to(self.device)
 
+        feat = feat.squeeze(dim=0)
+
+        if self.freeze:
+            with torch.no_grad():
+                outputs = self.model(feat, output_hidden_states=True)
+        else:
+            outputs = self.model(feat, output_hidden_states=True)
+
+        # outputs.hidden_states:
+        # hidden_states[0] 是 feature projection
+        # hidden_states[1:] 是 Transformer layers
+        return outputs.hidden_states
+##修改
 
 
 class WAVLM(torch.nn.Module):

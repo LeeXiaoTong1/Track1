@@ -6,16 +6,25 @@ def initParams():
     parser.add_argument('--seed', type=int, help="Random number seed for reproducibility", default=688)
 
     # Train & Dev Data folder prepare
-    parser.add_argument("--atadd_t1_train_audio", type=str, help="Path to the training audio for ATADD T1 dataset",
-                        default='yourpath/atadd/T1/train')
-    parser.add_argument("--atadd_t1_train_label", type=str, help="Path to the training label for ATADD T1 dataset",
-                        default="yourpath/atadd/T1/label/train.csv")
-    parser.add_argument("--atadd_t1_dev_audio", type=str, help="Path to the development audio for ATADD T1 dataset",
-                        default='yourpath/atadd/T1/dev')
-    parser.add_argument("--atadd_t1_dev_label", type=str, help="Path to the development label for ATADD T1 dataset",
-                        default="yourpath/atadd/T1/label/dev.csv")
-    parser.add_argument("--atadd_t1_eval_audio", type=str, help="Path to the evaluation audio for ATADD T1 dataset",
-                        default='yourpath/atadd/T1/eval')
+    parser.add_argument("--atadd_t1_train_audio", type=str, help="Path to the training audio for ATADD T1 dataset", default='/root/autodl-tmp/AT-ADD-Baseline/AT_ADD_data/Track1/train')
+
+    parser.add_argument("--atadd_t1_train_label", type=str, help="Path to the training label for ATADD T1 dataset", default="/root/autodl-tmp/AT-ADD-Baseline/AT_ADD_data/Track1/label/train.csv")
+
+    parser.add_argument("--atadd_t1_dev_audio", type=str, help="Path to the development audio for ATADD T1 dataset", default='/root/autodl-tmp/AT-ADD-Baseline/AT_ADD_data/Track1/dev')
+
+    parser.add_argument("--atadd_t1_dev_label", type=str, help="Path to the development label for ATADD T1 dataset", default="/root/autodl-tmp/AT-ADD-Baseline/AT_ADD_data/Track1/label/dev.csv")
+
+    parser.add_argument("--atadd_t1_eval_audio", type=str, help="Path to the evaluation audio for ATADD T1 dataset", default='/root/autodl-tmp/AT-ADD-Baseline/AT_ADD_data/Track1/eval_progress')
+    # parser.add_argument("--atadd_t1_train_audio", type=str, help="Path to the training audio for ATADD T1 dataset",
+    #                     default='yourpath/atadd/T1/train')
+    # parser.add_argument("--atadd_t1_train_label", type=str, help="Path to the training label for ATADD T1 dataset",
+    #                     default="yourpath/atadd/T1/label/train.csv")
+    # parser.add_argument("--atadd_t1_dev_audio", type=str, help="Path to the development audio for ATADD T1 dataset",
+    #                     default='yourpath/atadd/T1/dev')
+    # parser.add_argument("--atadd_t1_dev_label", type=str, help="Path to the development label for ATADD T1 dataset",
+    #                     default="yourpath/atadd/T1/label/dev.csv")
+    # parser.add_argument("--atadd_t1_eval_audio", type=str, help="Path to the evaluation audio for ATADD T1 dataset",
+    #                     default='yourpath/atadd/T1/eval')
 
 
     parser.add_argument("--atadd_t2_train_audio", type=str, help="Path to the training audio for ATADD T2 dataset",
@@ -31,9 +40,12 @@ def initParams():
 
 
     # SSL folder prepare
-    parser.add_argument("--xlsr", default="yourpath/huggingface/wav2vec2-xls-r-300m")
-    parser.add_argument("--wavlm", default="yourpath/huggingface/wavlm-large/")
-    parser.add_argument("--mert", default="yourpath/huggingface/MERT-300M/")
+    parser.add_argument("--xlsr", default="/root/autodl-tmp/AT-ADD-Baseline-track1/huggingface/wav2vec2-xls-r-300m")
+    parser.add_argument("--wavlm", default="/root/autodl-tmp/AT-ADD-Baseline-track1/huggingface/wavlm-large")
+    parser.add_argument("--mert", default="/root/autodl-tmp/AT-ADD-Baseline-track1/huggingface/MERT-v1-330M")
+    # parser.add_argument("--xlsr", default="yourpath/huggingface/wav2vec2-xls-r-300m")
+    # parser.add_argument("--wavlm", default="yourpath/huggingface/wavlm-large/")
+    # parser.add_argument("--mert", default="yourpath/huggingface/MERT-300M/")
 
     parser.add_argument("-o", "--out_fold", type=str, help="output folder", required=False, default='./models/try/')
 
@@ -44,7 +56,48 @@ def initParams():
                                  'fr-w2v2aasist', 'ft-wavlmaasist', 'ft-mertaasist',
                                  'pt-w2v2aasist', 'wpt-w2v2aasist',
                                  'pt-wavlmaasist', 'wpt-wavlmaasist',
-                                 'pt-mertaasist', 'wpt-mertaasist'])
+                                 'pt-mertaasist', 'wpt-mertaasist', 'aalf-w2v2aasist'])
+# 修改   
+    parser.add_argument(
+        "--aalf_layers",
+        type=str,
+        default="4,8,12,16,20,24",
+        help="XLSR transformer layers used for adaptive artifact layer fusion"
+    )
+
+    parser.add_argument(
+        "--aalf_bottleneck",
+        type=int,
+        default=256,
+        help="Bottleneck dimension of artifact adapter"
+    )
+
+    parser.add_argument(
+        "--aalf_topk",
+        type=int,
+        default=0,
+        help="Use top-k sparse layer routing. 0 means use all selected layers."
+    )
+
+    parser.add_argument(
+        "--aalf_dropout",
+        type=float,
+        default=0.1
+    )
+
+    parser.add_argument(
+        "--aalf_freeze_xlsr",
+        action="store_true",
+        help="Freeze XLSR and only train layer fusion, adapter and AASIST"
+    )
+
+    parser.add_argument(
+        "--init_from",
+        type=str,
+        default="",
+        help="Initialize model from an existing checkpoint, e.g. ft_xlsr_aasist/atadd_model.pt"
+    )
+# 修改 
 
     # pt
     parser.add_argument("--prompt_dim", type=int, help="prompt dim", default=1024)

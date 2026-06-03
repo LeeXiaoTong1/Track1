@@ -6,6 +6,8 @@ import os
 import json
 import shutil
 import numpy as np
+import random
+import torchaudio
 from sklearn.metrics import f1_score
 
 from model import *
@@ -61,6 +63,34 @@ def initParams():
     parser.add_argument('--ASAM', type=bool, default=False, help="use ASAM")
     parser.add_argument('--CSAM', type=bool, default=False, help="use CSAM")
 
+    ### PI-XLSR-AASIST
+    parser.add_argument(
+        "--pi_training",
+        action="store_true",
+        help="Use perturbation-invariant dual-view training"
+    )
+
+    parser.add_argument(
+        "--pi_js",
+        type=float,
+        default=0.2,
+        help="Weight of JS consistency loss"
+    )
+
+    parser.add_argument(
+        "--pi_feat",
+        type=float,
+        default=0.05,
+        help="Weight of feature consistency loss"
+    )
+
+    parser.add_argument(
+        "--pi_aug_prob",
+        type=float,
+        default=1.0,
+        help="Probability of applying perturbation to a batch"
+    )
+    ### PI-XLSR-AASIST
     args = parser.parse_args()
 
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
@@ -110,7 +140,76 @@ def shuffle(feat, labels):
     feat = feat[shuffle_index]
     labels = labels[shuffle_index]
     return feat, labels
+    
+### PI-XLSR-AASIST
+def fix_audio_length(x, target_len):
+    cur_len = x.size(-1)
+    if cur_len == target_len:
+        return x
+    
+    if cur_len > target_len:
+        start = random.randint(0, cur_len - target_len)
+        return x[..., start:start + target_len]
+    
+    pad_len = target_len - cur_len
+    return F.pad(x, (0, pad_len))
 
+def random_perturb_batch(x, sample_rate=16000, aug_prob=1.0):
+    """
+    x: [B, T]
+    return: [B, T]
+    只做 signal-level perturbation，不引入外部音频数据。
+    """
+    if random.random() > aug_prob:
+        return x
+
+    target_len = x.size(-1)
+    y = x.clone()
+
+    op = random.choice([
+        "resample",
+        "speed",
+        "noise",
+        "gain",
+        "clip"])
+
+    if op == "resample":
+        new_sr = random.choice([8000, 12000, 24000])
+        y = torchaudio.functional.resample(y, sample_rate, new_sr)
+        y = torchaudio.functional.resample(y, new_sr, sample_rate)
+        y = fix_audio_length(y, target_len)
+
+    elif op == "speed":
+        factor = random.choice([0.90, 0.95, 1.05, 1.10])
+        new_sr = int(sample_rate * factor)
+        y = torchaudio.functional.resample(y, sample_rate, new_sr)
+        y = fix_audio_length(y, target_len)
+
+    elif op == "noise":
+        snr_db = random.uniform(10, 30)
+        signal_power = y.pow(2).mean(dim=-1, keepdim=True).clamp(min=1e-8)
+        noise_power = signal_power / (10 ** (snr_db / 10))
+        noise = torch.randn_like(y) * noise_power.sqrt()
+        y = y + noise
+
+    elif op == "gain":
+        gain = random.uniform(0.5, 1.5)
+        y = y * gain
+
+    elif op == "clip":
+        clip_val = random.uniform(0.6, 0.95)
+        y = torch.clamp(y, -clip_val, clip_val)
+
+    y = torch.clamp(y, -1.0, 1.0)
+    return y
+
+def js_divergence_from_logits(logits_1, logits_2):
+    p = F.softmax(logits_1, dim=1)
+    q = F.softmax(logits_2, dim=1)
+    m = 0.5 * (p + q)
+    js = 0.5 * (F.kl_div(torch.log(p + 1e-8), m, reduction="batchmean") + F.kl_div(torch.log(q + 1e-8), m, reduction="batchmean"))
+    return js
+### PI-XLSR-AASIST
 
 def train(args):
     torch.set_default_tensor_type(torch.FloatTensor)
@@ -151,6 +250,18 @@ def train(args):
             num_wavelet_tokens=args.num_wavelet_tokens,
             dropout=args.pt_dropout
         ).to(args.device)
+    # 修改 aalf
+    if args.model == 'aalf-w2v2aasist':
+        layer_ids = tuple(int(x) for x in args.aalf_layers.split(","))
+
+        feat_model = AALFXLSRAASIST(
+            model_dir=args.xlsr,
+            freeze=args.aalf_freeze_xlsr,
+            layer_ids=layer_ids,
+            bottleneck=args.aalf_bottleneck,
+            topk=args.aalf_topk,
+            dropout=args.aalf_dropout
+        ).to(args.device)
     
     feat_optimizer = torch.optim.Adam(
         feat_model.parameters(),
@@ -159,6 +270,14 @@ def train(args):
         eps=args.eps,
         weight_decay=0.0005
     )
+    # 修改
+    
+    if getattr(args, "init_from", ""):
+        print(f"Loading initialization checkpoint from: {args.init_from}")
+        ckpt = torch.load(args.init_from, map_location=args.device)
+        missing, unexpected = feat_model.load_state_dict(ckpt, strict=False)
+        print("Missing keys:", missing)
+        print("Unexpected keys:", unexpected)
 
     if args.SAM or args.CSAM:
         base_optimizer = torch.optim.Adam
@@ -277,12 +396,51 @@ def train(args):
                 criterion(feat_outputs, labels).mean().backward()
                 feat_optimizer.second_step(zero_grad=True)
 
+            # else:
+            #     feat_optimizer.zero_grad()
+            #     feats, feat_outputs = feat_model(feat)
+            #     feat_loss = criterion(feat_outputs, labels)
+            #     feat_loss.backward()
+            #     feat_optimizer.step()
+            
+            ### PI-XLSR-AASIST
             else:
                 feat_optimizer.zero_grad()
-                feats, feat_outputs = feat_model(feat)
-                feat_loss = criterion(feat_outputs, labels)
+
+                if args.pi_training:
+                    feat_aug = random_perturb_batch(
+                        feat,
+                        sample_rate=16000,
+                        aug_prob=args.pi_aug_prob
+                    )
+
+                    feats_clean, outputs_clean = feat_model(feat)
+                    feats_aug, outputs_aug = feat_model(feat_aug)
+
+                    ce_clean = criterion(outputs_clean, labels)
+                    ce_aug = criterion(outputs_aug, labels)
+
+                    js_loss = js_divergence_from_logits(outputs_clean, outputs_aug)
+
+                    feat_consistency = F.mse_loss(
+                        F.normalize(feats_clean, dim=-1),
+                        F.normalize(feats_aug, dim=-1)
+                    )
+
+                    feat_loss = (
+                        0.5 * ce_clean +
+                        0.5 * ce_aug +
+                        args.pi_js * js_loss +
+                        args.pi_feat * feat_consistency
+                    )
+
+                else:
+                    feats, feat_outputs = feat_model(feat)
+                    feat_loss = criterion(feat_outputs, labels)
+
                 feat_loss.backward()
                 feat_optimizer.step()
+            ### PI-XLSR-AASIST
 
             trainlossDict['base_loss'].append(feat_loss.item())
 

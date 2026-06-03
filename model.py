@@ -584,6 +584,115 @@ class XLSRAASIST(nn.Module):
         self.wav2vec2.eval()   # important
 
         
+class AdaptiveArtifactLayerFusion(nn.Module):
+    def __init__(
+        self,
+        hidden_size=1024,
+        layer_ids=(4, 8, 12, 16, 20, 24),
+        bottleneck=256,
+        topk=0,
+        dropout=0.1
+    ):
+        super().__init__()
+
+        self.layer_ids = list(layer_ids)
+        self.num_layers = len(self.layer_ids)
+        self.topk = topk
+
+        self.gate_norm = nn.LayerNorm(hidden_size)
+        self.gate = nn.Sequential(
+            nn.Linear(hidden_size, 256),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(256, self.num_layers)
+        )
+
+        self.adapter = nn.Sequential(
+            nn.LayerNorm(hidden_size),
+            nn.Linear(hidden_size, bottleneck),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(bottleneck, hidden_size)
+        )
+
+    def forward(self, hidden_states):
+        # hidden_states[0] 是 projection；hidden_states[1..24] 是 transformer 层
+        selected = [hidden_states[i] for i in self.layer_ids]
+        hs = torch.stack(selected, dim=1)  # [B, L, T, D]
+
+        # 用最后一个 selected layer 的 utterance-level 表征做 sample-adaptive routing
+        gate_input = hs[:, -1].mean(dim=1)  # [B, D]
+        gate_input = self.gate_norm(gate_input)
+
+        alpha = torch.softmax(self.gate(gate_input), dim=-1)  # [B, L]
+
+        if self.topk is not None and self.topk > 0 and self.topk < self.num_layers:
+            _, idx = torch.topk(alpha, self.topk, dim=-1)
+            mask = torch.zeros_like(alpha)
+            mask.scatter_(1, idx, 1.0)
+            alpha = alpha * mask
+            alpha = alpha / (alpha.sum(dim=-1, keepdim=True) + 1e-8)
+
+        fused = (hs * alpha[:, :, None, None]).sum(dim=1)  # [B, T, D]
+
+        # residual artifact adapter
+        fused = fused + self.adapter(fused)
+
+        return fused
+
+##修改
+class AALFXLSRAASIST(nn.Module):
+    def __init__(
+        self,
+        model_dir,
+        device='cuda',
+        freeze=True,
+        layer_ids=(4, 8, 12, 16, 20, 24),
+        bottleneck=256,
+        topk=0,
+        dropout=0.1
+    ):
+        super(AALFXLSRAASIST, self).__init__()
+
+        self.freeze = freeze
+
+        self.wav2vec2 = XLSR(
+            model_dir=model_dir,
+            device=device,
+            freeze=freeze
+        )
+
+        self.layer_fusion = AdaptiveArtifactLayerFusion(
+            hidden_size=1024,
+            layer_ids=layer_ids,
+            bottleneck=bottleneck,
+            topk=topk,
+            dropout=dropout
+        )
+
+        self.w2vaasist = SSLAASIST()
+
+    def forward(self, audio_data):
+        hidden_states = self.wav2vec2.extract_hidden_states(audio_data)
+        features = self.layer_fusion(hidden_states)
+        last_hidden, output = self.w2vaasist(features)
+        return last_hidden, output
+
+    def train(self, mode=True):
+        super().train(mode)
+
+        if self.freeze:
+            self.wav2vec2.model.eval()
+            for p in self.wav2vec2.model.parameters():
+                p.requires_grad = False
+
+        return self
+
+    def eval(self):
+        super().eval()
+        return self
+##修改
+        
 class WAVLMAASIST(nn.Module):
     def __init__(self, model_dir, device='cuda', freeze = True):
         super(WAVLMAASIST, self).__init__()

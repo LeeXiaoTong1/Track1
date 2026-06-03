@@ -1,6 +1,6 @@
 import csv
 import os
-# input_csv = "atadd_baseline/ckpt_t2/baseline_ft-w2v2aasist/result/atadd-track2_logits.csv"
+input_csv = "./ckpt_t1/pi_aalf_xlsr_aasist/result/atadd-track1_logits.csv"
 base_path = os.path.dirname(input_csv)
 output_csv = os.path.join(base_path, "predict.csv")
 threshold = 0.5

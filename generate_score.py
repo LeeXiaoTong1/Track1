@@ -116,7 +116,19 @@ def build_model(args):
             num_wavelet_tokens=args.num_wavelet_tokens,
             dropout=args.pt_dropout
         ).to(args.device)
+# 修改
+    if args.model == 'aalf-w2v2aasist':
+        layer_ids = tuple(int(x) for x in args.aalf_layers.split(","))
 
+        feat_model = AALFXLSRAASIST(
+            model_dir=args.xlsr,
+            freeze=args.aalf_freeze_xlsr,
+            layer_ids=layer_ids,
+            bottleneck=args.aalf_bottleneck,
+            topk=args.aalf_topk,
+            dropout=args.aalf_dropout
+        ).to(args.device)
+# 修改   
     return feat_model
 
 
